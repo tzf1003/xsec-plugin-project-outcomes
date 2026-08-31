@@ -83,13 +83,13 @@ function request(state,options){
 }
 function showFailure(state,message){setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
 function cancelOutcomeSearch(state){if(state.searchTimer!==undefined){clearTimeout(state.searchTimer);state.searchTimer=undefined}}
-function scheduleOutcomeSearch(state){cancelOutcomeSearch(state);state.revision+=1;state.searchTimer=setTimeout(()=>{state.searchTimer=undefined;loadOutcomes(state)},SEARCH_DEBOUNCE_MS)}
+function scheduleOutcomeSearch(state){cancelOutcomeSearch(state);state.revision+=1;state.selectedOutcomeId=undefined;state.searchTimer=setTimeout(()=>{state.searchTimer=undefined;loadOutcomes(state)},SEARCH_DEBOUNCE_MS)}
 function loadOutcomes(state){
   cancelOutcomeSearch(state);state.selectedOutcomeId=undefined;
   request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:"正在读取项目成果…",success:(page)=>{state.list=items(page);setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>showFailure(state,"读取项目成果失败："+failure(error))});
 }
 function loadOutcomeDetail(state,outcomeId){
-  cancelOutcomeSearch(state);state.selectedOutcomeId=outcomeId;request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>loadOutcomes(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
+  cancelOutcomeSearch(state);state.selectedOutcomeId=outcomeId;request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>loadOutcomes(state),referenceable:true,sourceable:true})},failure:(error)=>{state.selectedOutcomeId=undefined;showFailure(state,"读取成果详情失败："+failure(error))}});
 }
 function loadBoundDetail(state){
   request(state,{method:"xsec.outcomes.resolve",params:{},loading:"正在读取详情…",success:(detail)=>renderOutcomeDetail(state,detail,{referenceable:false,sourceable:false}),failure:(error)=>showFailure(state,"读取详情失败："+failure(error))});
@@ -120,7 +120,7 @@ function appendControls(state,app){
   const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;scheduleOutcomeSearch(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
 }
 function build(state){state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;if(isOutcomesTool(state))appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
-function update(state,context){cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
+function update(state,context){cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;const previousAssignmentId=state.context.assignmentId;state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";if(state.scope==="assignment"&&previousAssignmentId!==state.context.assignmentId)state.selectedOutcomeId=undefined;build(state);refreshView(state)}
 function createController(host){
   const state={host,root:null,list:[],query:"",kind:"all",scope:"project",revision:0,contextRevision:0,searchTimer:undefined,selectedOutcomeId:undefined,nodes:{},context:contextInfo(host.context)};
   return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.root?.replaceChildren()}};
