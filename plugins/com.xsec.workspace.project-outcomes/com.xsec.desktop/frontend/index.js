@@ -13,8 +13,8 @@ function el(tag,className,value){const node=document.createElement(tag);if(class
 function button(className,label,onClick){const node=el("button",className,label);node.type="button";node.addEventListener("click",onClick);return node}
 function items(value){return Array.isArray(value)?value:Array.isArray(value?.items)?value.items:[]}
 function text(value,empty="—"){return typeof value==="string"&&value.trim()?value:empty}
-function time(value){const stamp=new Date(Number(value));return Number.isNaN(stamp.getTime())?"—":stamp.toLocaleString("zh-CN")}
-function safe(value){return JSON.parse(JSON.stringify(value??{},(key,item)=>key==="storage_path"?undefined:item))}
+function time(value){if(value===null||value===undefined||value==="")return "—";const stamp=new Date(Number(value));return Number.isNaN(stamp.getTime())?"—":stamp.toLocaleString("zh-CN")}
+function safe(value){if(value===null||value===undefined)return value;return JSON.parse(JSON.stringify(value,(key,item)=>key==="storage_path"?undefined:item))}
 function failure(error){return text(error?.message,String(error))}
 function isOutcomesTool(state){return state.context.tool==="project-outcomes"}
 function setNotice(state,message,error=false){state.nodes.notice.textContent=message;state.nodes.notice.className=error?"notice error":"notice"}
@@ -35,7 +35,7 @@ function openSource(state,row){
 }
 function renderFilters(state){
   if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),filters=el("div","filters");
-  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;renderOutcomeList(state)});filter.setAttribute("aria-pressed",String(active));filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;showOutcomeList(state)});filter.setAttribute("aria-pressed",String(active));filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
   state.nodes.filters.replaceChildren(filters);
 }
 function appendReferenceAction(state,article,row){const action=button("add","@",()=>addReference(state,"outcome",row.outcome_id));action.setAttribute("aria-label","添加成果 "+row.title+" 到对话");article.append(action)}
@@ -48,6 +48,7 @@ function renderOutcomeList(state){
   renderFilters(state);const list=el("div","list"),rows=visibleRows(state.list,state.query,state.kind);
   if(!rows.length)list.append(el("div","empty",state.list.length?"没有匹配的项目成果":"暂无项目成果"));for(const row of rows)list.append(renderOutcomeRow(state,row));replaceContent(state,list);
 }
+function showOutcomeList(state){state.revision+=1;renderOutcomeList(state)}
 
 function renderPreview(detail){
   const preview=detail.preview;if(!preview||preview.kind==="unavailable")return preview?el("p","muted",text(preview.reason)):null;
@@ -57,7 +58,7 @@ function renderPreview(detail){
 function appendDetailField(dl,label,value){if(value===null||value===undefined||value==="")return;const object=typeof value==="object",rendered=object?JSON.stringify(value,null,2):String(value);dl.append(el("dt","",label),el("dd",object?"code":"",rendered))}
 function appendDetailFields(panel,detail){
   const facts=[["成果 ID",detail.outcome_id],["来源",detail.source_label],["更新时间",time(detail.updated_at)],["内容类型",detail.content_type],["大小",detail.size_bytes==null?null:String(detail.size_bytes)+" B"]];
-  const fields=Object.entries(safe(detail.details)).filter(([key,value])=>key!=="storage_path"&&value!==null&&value!==""&&value!==undefined).map(([key,value])=>[FIELD[key]??key,value]),section=el("section","details"),dl=el("dl");
+  const fields=Object.entries(safe(detail.details)??{}).filter(([key,value])=>key!=="storage_path"&&value!==null&&value!==""&&value!==undefined).map(([key,value])=>[FIELD[key]??key,value]),section=el("section","details"),dl=el("dl");
   for(const[label,value]of[...facts,...fields])appendDetailField(dl,label,value);section.append(dl);panel.append(section);
 }
 function appendBackAction(panel,back,detail){
@@ -69,7 +70,7 @@ function appendDetailActions(state,panel,detail,options){
 }
 function appendSourceAction(state,panel,detail){const actions=el("div","actions");actions.append(button("action","打开来源",()=>openSource(state,detail)));panel.append(actions)}
 function appendBadges(panel,detail){const badges=el("div","actions");badges.append(el("span","tag",LABEL[detail.kind]??"成果"));if(detail.severity)badges.append(el("span","tag severity",detail.severity));if(detail.status)badges.append(el("span","tag",detail.status));panel.append(badges)}
-function appendRawDetail(panel,details){const raw=el("details","raw");raw.append(el("summary","","查看结构化数据"),el("pre","code",JSON.stringify(safe(details),null,2)));panel.append(raw)}
+function appendRawDetail(panel,details){const raw=el("details","raw");raw.append(el("summary","","查看结构化数据"),el("pre","code",JSON.stringify(safe(details)??{},null,2)));panel.append(raw)}
 function renderOutcomeDetail(state,detail,options){
   const panel=el("article","detail");if(options.back)appendBackAction(panel,options.back,detail);appendDetailActions(state,panel,detail,options);appendBadges(panel,detail);if(detail.summary)panel.append(el("p","summary",detail.summary));
   const preview=renderPreview(detail);if(preview)panel.append(preview);appendDetailFields(panel,detail);appendRawDetail(panel,detail.details);replaceContent(state,panel);
@@ -85,7 +86,7 @@ function loadOutcomes(state){
   request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:"正在读取项目成果…",success:(page)=>{state.list=items(page);setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>showFailure(state,"读取项目成果失败："+failure(error))});
 }
 function loadOutcomeDetail(state,outcomeId){
-  request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",success:(detail)=>renderOutcomeDetail(state,detail,{back:()=>renderOutcomeList(state),referenceable:true,sourceable:true}),failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
+  request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",success:(detail)=>renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true}),failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
 function loadBoundDetail(state){
   request(state,{method:"xsec.outcomes.resolve",params:{},loading:"正在读取详情…",success:(detail)=>renderOutcomeDetail(state,detail,{referenceable:false,sourceable:false}),failure:(error)=>showFailure(state,"读取详情失败："+failure(error))});
@@ -113,10 +114,10 @@ function appendHeader(state,app){
 }
 function appendControls(state,app){
   const controls=el("section","controls"),scope=el("div","scope");for(const[value,label]of[["project","整个项目"],["assignment","当前任务"]]){const item=button("",label,()=>{state.scope=value;build(state);loadOutcomes(state)});item.disabled=value==="assignment"&&!state.context.assignmentId;item.setAttribute("aria-pressed",String(state.scope===value));scope.append(item)}
-  const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;renderOutcomeList(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
+  const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;showOutcomeList(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
 }
 function build(state){state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;if(isOutcomesTool(state))appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
-function update(state,context){state.context=contextInfo(context);build(state);refreshView(state)}
+function update(state,context){state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
 function createController(host){
   const state={host,root:null,list:[],query:"",kind:"all",scope:"project",revision:0,nodes:{},context:contextInfo(host.context)};
   return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});state.revision+=1;state.root?.replaceChildren()}};
