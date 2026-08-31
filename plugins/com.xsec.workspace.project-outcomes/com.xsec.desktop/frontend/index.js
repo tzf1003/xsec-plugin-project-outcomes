@@ -5,6 +5,7 @@ const TITLE={"project-outcomes":"项目成果","finding-detail":"漏洞详情","
 const FIELD={description:"说明",impact:"影响",reproduction_steps:"复现步骤",remediation:"修复建议",status:"状态",severity:"严重度",confidence:"置信度",endpoint:"端点",parameter:"参数",executive_summary:"执行摘要",scope:"范围",methodology:"方法",limitations:"限制",conclusion:"结论",filename:"文件名",kind:"类型",content_type:"内容类型",size_bytes:"大小",sha256:"SHA256",created_at:"创建时间",updated_at:"更新时间",assignment_id:"任务",run_id:"运行"};
 const OUTCOME_LIMIT=500;
 const PERCENT_SCALE=100;
+const SEARCH_DEBOUNCE_MS=300;
 const TASK_ID_DISPLAY_START=0;
 const TASK_ID_DISPLAY_LENGTH=12;
 const CSS=`:root{color:var(--xsec-text-primary,#20252b);background:var(--xsec-surface-base,#f7f8fa);font:13px/1.48 var(--xsec-font-family,system-ui,sans-serif)}*{box-sizing:border-box}body{margin:0}.app{min-height:100%;padding:14px}.heading,.actions,.scope,.row,.card-head,.card-copy,.details dl{display:flex}.heading,.actions{align-items:center;justify-content:space-between;gap:8px}.heading h1{margin:0;font-size:16px}.heading small,.muted,.meta,.notice{color:var(--xsec-text-secondary,#68707c)}.heading>span{display:grid;gap:2px}.icon-btn,.action,.scope button,.filter,.outcome-open,.add{font:inherit;color:inherit;border:1px solid var(--xsec-border,#d9dce1);background:var(--xsec-surface-container,#fff);border-radius:var(--xsec-radius-md,6px);cursor:pointer}.icon-btn,.add{width:32px;height:32px;padding:0;font-size:16px}.controls{display:grid;gap:9px;margin:14px 0}.scope{gap:0}.scope button{flex:1;border-radius:0;padding:7px}.scope button:first-child{border-radius:var(--xsec-radius-md,6px) 0 0 var(--xsec-radius-md,6px)}.scope button:last-child{border-radius:0 var(--xsec-radius-md,6px) var(--xsec-radius-md,6px) 0}.scope button[aria-pressed=true],.filter.is-active{color:#fff;background:var(--xsec-accent,#3977e8);border-color:var(--xsec-accent,#3977e8)}.scope button:disabled{opacity:.45;cursor:not-allowed}.search{width:100%;padding:8px 10px;color:inherit;border:1px solid var(--xsec-border,#d9dce1);border-radius:var(--xsec-radius-md,6px);background:var(--xsec-surface-container,#fff);font:inherit}.filters{display:flex;gap:6px;overflow:auto;padding-bottom:2px}.filter{white-space:nowrap;padding:5px 8px}.filter span{margin-left:5px;opacity:.72}.notice{min-height:20px;margin:0 0 8px}.notice.error{color:var(--xsec-status-error,#cf3d39)}.list{display:grid;gap:8px}.row{align-items:stretch;gap:6px}.outcome-open{display:grid;grid-template-columns:30px minmax(0,1fr);gap:9px;flex:1;min-width:0;padding:10px;text-align:left}.outcome-open:hover,.icon-btn:hover,.action:hover,.add:hover{background:var(--xsec-surface-hover,#f0f2f5)}.outcome-open:focus-visible,.icon-btn:focus-visible,.action:focus-visible,.add:focus-visible,.filter:focus-visible,.scope button:focus-visible{outline:2px solid var(--xsec-accent,#3977e8);outline-offset:2px}.outcome-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;color:var(--xsec-accent,#3977e8);background:var(--xsec-accent-soft,#e5efff);font-size:17px}.card-copy{display:grid;min-width:0;gap:3px}.card-head{align-items:center;gap:6px}.card-head strong,.meta{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.meta{font-size:12px}.tag{display:inline-block;width:max-content;max-width:100%;padding:1px 6px;border:1px solid var(--xsec-border,#d9dce1);border-radius:999px;color:var(--xsec-text-secondary,#68707c);font-size:11px}.severity{color:var(--xsec-status-error,#cf3d39);border-color:currentColor}.empty,.loading{padding:32px 12px;text-align:center;color:var(--xsec-text-secondary,#68707c)}.detail{display:grid;gap:13px}.back{display:flex;align-items:center;gap:8px;border:0;padding:0;background:none;color:var(--xsec-text-primary,#20252b);font:inherit;cursor:pointer}.back strong{display:block;font-size:16px}.detail-title small{display:block;color:var(--xsec-text-secondary,#68707c)}.actions{justify-content:flex-start}.action{padding:7px 10px}.action.primary{border-color:var(--xsec-accent,#3977e8);color:#fff;background:var(--xsec-accent,#3977e8)}.summary{margin:0;white-space:pre-wrap;word-break:break-word}.preview{max-width:100%;max-height:260px;border:1px solid var(--xsec-border,#d9dce1);border-radius:var(--xsec-radius-md,6px)}.code{margin:0;padding:10px;overflow:auto;border:1px solid var(--xsec-border,#d9dce1);border-radius:var(--xsec-radius-md,6px);background:var(--xsec-surface-subtle,#f3f4f6);white-space:pre-wrap;word-break:break-word}.details dl{display:grid;grid-template-columns:92px minmax(0,1fr);gap:7px 10px;margin:0}.details dt{color:var(--xsec-text-secondary,#68707c)}.details dd{margin:0;word-break:break-word}.raw summary{cursor:pointer}.raw pre{margin:8px 0 0}.panel-static-row{display:flex;justify-content:space-between;gap:8px;padding:10px;border:1px solid var(--xsec-border,#d9dce1);border-radius:var(--xsec-radius-md,6px);background:var(--xsec-surface-container,#fff)}.panel-static-row span{display:grid;gap:3px;min-width:0}.panel-static-row strong,.panel-static-row small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.panel-static-row small{color:var(--xsec-text-secondary,#68707c)}`;
@@ -18,6 +19,7 @@ function safe(value){if(value===null||value===undefined)return value;return JSON
 function failure(error){return text(error?.message,String(error))}
 function isOutcomesTool(state){return state.context.tool==="project-outcomes"}
 function outcomeTitle(row){return text(row?.title,text(row?.outcome_id))}
+function taskProgress(value){if(value===null||value===undefined||value==="")return undefined;const progress=Number(value);return Number.isFinite(progress)?Math.round(progress*PERCENT_SCALE)+"%":undefined}
 function setNotice(state,message,error=false){state.nodes.notice.textContent=message;state.nodes.notice.className=error?"notice error":"notice"}
 function replaceContent(state,node){state.nodes.content.replaceChildren(node)}
 function contextInfo(context){const workspace=context?.workspace??{},binding=workspace.binding??{},entityId=context?.tool?.entityId;return{tool:context?.tool?.kind??"project-outcomes",mode:workspace.mode,entityId,assignmentId:binding.assignmentId,canAdd:workspace.canAddComposerReference===true,toolCall:workspace.session?.active_tool_calls?.[entityId]}}
@@ -25,18 +27,18 @@ function visibleRows(rows,query,kind){const needle=query.trim().toLowerCase();re
 function outcomeSource(context,row){const toolId=SOURCE[row.kind],entityId=row.kind==="task-conclusion"?row.assignment_id:row.entity_id;if(context.mode==="observe"&&toolId==="task-detail")return undefined;return toolId&&entityId?{toolId,entityId}:undefined}
 
 function addReference(state,target,outcomeId){
-  const params=target==="collection"?{target}:{target,outcomeId};setNotice(state,"正在添加到对话…");
+  const params=target==="collection"?{target}:{target,outcomeId},contextRevision=state.contextRevision;setNotice(state,"正在添加到对话…");
   console.info("project-outcomes.reference.started",{target});
-  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});setNotice(state,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});setNotice(state,"添加到对话失败："+failure(error),true)});
+  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});if(contextRevision===state.contextRevision)setNotice(state,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});if(contextRevision===state.contextRevision)setNotice(state,"添加到对话失败："+failure(error),true)});
 }
 function openSource(state,row){
-  const target=outcomeSource(state.context,row);if(!target)return;
+  const target=outcomeSource(state.context,row),contextRevision=state.contextRevision;if(!target)return;
   console.info("project-outcomes.source-open.started",{toolId:target.toolId});
-  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>console.info("project-outcomes.source-open.completed",{toolId:target.toolId})).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});setNotice(state,"打开来源失败："+failure(error),true)});
+  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>console.info("project-outcomes.source-open.completed",{toolId:target.toolId})).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});if(contextRevision===state.contextRevision)setNotice(state,"打开来源失败："+failure(error),true)});
 }
 function renderFilters(state){
   if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),filters=el("div","filters");
-  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;showOutcomeList(state)});filter.setAttribute("aria-pressed",String(active));filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;loadOutcomes(state)});filter.setAttribute("aria-pressed",String(active));filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
   state.nodes.filters.replaceChildren(filters);
 }
 function appendReferenceAction(state,article,row){const action=button("add","@",()=>addReference(state,"outcome",row.outcome_id));action.setAttribute("aria-label","添加成果 "+outcomeTitle(row)+" 到对话");article.append(action)}
@@ -49,8 +51,6 @@ function renderOutcomeList(state){
   renderFilters(state);const list=el("div","list"),rows=visibleRows(state.list,state.query,state.kind);
   if(!rows.length)list.append(el("div","empty",state.list.length?"没有匹配的项目成果":"暂无项目成果"));for(const row of rows)list.append(renderOutcomeRow(state,row));replaceContent(state,list);
 }
-function showOutcomeList(state){state.revision+=1;renderOutcomeList(state)}
-
 function renderPreview(detail){
   const preview=detail.preview;if(!preview||preview.kind==="unavailable")return preview?el("p","muted",text(preview.reason)):null;
   if(preview.kind==="image"&&/^image\/[a-z0-9.+-]+$/i.test(preview.mime_type)){const image=document.createElement("img");image.className="preview";image.alt=text(detail.title);image.src="data:"+preview.mime_type+";base64,"+preview.data_base64;return image}
@@ -83,11 +83,14 @@ function request(state,options){
   void state.host.request(options.method,options.params).then((value)=>{console.info("project-outcomes.request.completed",{method:options.method,count:items(value).length});if(revision===state.revision)options.success(value)}).catch((error)=>{console.error("project-outcomes.request.failed",{method:options.method,message:failure(error)});if(revision===state.revision)options.failure(error)});
 }
 function showFailure(state,message){setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
+function cancelOutcomeSearch(state){if(state.searchTimer!==undefined){clearTimeout(state.searchTimer);state.searchTimer=undefined}}
+function scheduleOutcomeSearch(state){cancelOutcomeSearch(state);state.revision+=1;state.searchTimer=setTimeout(()=>{state.searchTimer=undefined;loadOutcomes(state)},SEARCH_DEBOUNCE_MS)}
 function loadOutcomes(state){
+  cancelOutcomeSearch(state);
   request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:"正在读取项目成果…",success:(page)=>{state.list=items(page);setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>showFailure(state,"读取项目成果失败："+failure(error))});
 }
 function loadOutcomeDetail(state,outcomeId){
-  request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",success:(detail)=>renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true}),failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
+  request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",success:(detail)=>renderOutcomeDetail(state,detail,{back:()=>loadOutcomes(state),referenceable:true,sourceable:true}),failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
 function loadBoundDetail(state){
   request(state,{method:"xsec.outcomes.resolve",params:{},loading:"正在读取详情…",success:(detail)=>renderOutcomeDetail(state,detail,{referenceable:false,sourceable:false}),failure:(error)=>showFailure(state,"读取详情失败："+failure(error))});
@@ -101,7 +104,7 @@ function renderTaskCall(state,call){
 }
 function renderTaskDetail(state,task){
   const panel=el("article","detail"),badges=el("div","actions"),section=el("section","details"),dl=el("dl");panel.append(el("h2","","任务 "+text(task.id).slice(TASK_ID_DISPLAY_START,TASK_ID_DISPLAY_LENGTH)));badges.append(el("span","tag",text(task.status)));panel.append(badges);
-  for(const[label,value]of[["进度",Math.round(Number(task.progress)*PERCENT_SCALE)+"%"],["摘要",task.summary],["绑定 run",task.run_id]])appendDetailField(dl,label,value);section.append(dl);panel.append(section);replaceContent(state,panel);
+  for(const[label,value]of[["进度",taskProgress(task.progress)],["摘要",task.summary],["绑定 run",task.run_id]])appendDetailField(dl,label,value);section.append(dl);panel.append(section);replaceContent(state,panel);
 }
 function loadTaskDetail(state){request(state,{method:"xsec.outcomes.task.get",params:{},loading:"正在读取任务详情…",success:(task)=>renderTaskDetail(state,task),failure:(error)=>showFailure(state,"读取任务详情失败："+failure(error))})}
 function refreshView(state){
@@ -115,12 +118,12 @@ function appendHeader(state,app){
 }
 function appendControls(state,app){
   const controls=el("section","controls"),scope=el("div","scope");for(const[value,label]of[["project","整个项目"],["assignment","当前任务"]]){const item=button("",label,()=>{state.scope=value;build(state);loadOutcomes(state)});item.disabled=value==="assignment"&&!state.context.assignmentId;item.setAttribute("aria-pressed",String(state.scope===value));scope.append(item)}
-  const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;loadOutcomes(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
+  const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;scheduleOutcomeSearch(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
 }
 function build(state){state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;if(isOutcomesTool(state))appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
-function update(state,context){state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
+function update(state,context){cancelOutcomeSearch(state);state.contextRevision+=1;state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
 function createController(host){
-  const state={host,root:null,list:[],query:"",kind:"all",scope:"project",revision:0,nodes:{},context:contextInfo(host.context)};
-  return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});state.revision+=1;state.root?.replaceChildren()}};
+  const state={host,root:null,list:[],query:"",kind:"all",scope:"project",revision:0,contextRevision:0,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
+  return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.root?.replaceChildren()}};
 }
 export function activate(host){console.debug("project-outcomes.activate",{apiVersion:host.apiVersion});return createController(host)}
