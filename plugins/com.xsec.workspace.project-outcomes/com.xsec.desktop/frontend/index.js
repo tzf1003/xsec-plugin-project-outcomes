@@ -23,7 +23,6 @@ function taskProgress(value){if(value===null||value===undefined||value==="")retu
 function setNotice(state,message,error=false){state.nodes.notice.textContent=message;state.nodes.notice.className=error?"notice error":"notice"}
 function replaceContent(state,node){state.nodes.content.replaceChildren(node)}
 function contextInfo(context){const workspace=context?.workspace??{},binding=workspace.binding??{},entityId=context?.tool?.entityId;return{tool:context?.tool?.kind??"project-outcomes",mode:workspace.mode,entityId,assignmentId:binding.assignmentId,canAdd:workspace.canAddComposerReference===true,toolCall:workspace.session?.active_tool_calls?.[entityId]}}
-function visibleRows(rows,query,kind){const needle=query.trim().toLowerCase();return rows.filter((row)=>kind==="all"||row.kind===kind).filter((row)=>!needle||[row.title,row.summary,row.source_label].some((value)=>text(value,"").toLowerCase().includes(needle)))}
 function outcomeSource(context,row){const toolId=SOURCE[row.kind],entityId=row.kind==="task-conclusion"?row.assignment_id:row.entity_id;if(context.mode==="observe"&&toolId==="task-detail")return undefined;return toolId&&entityId?{toolId,entityId}:undefined}
 
 function addReference(state,target,outcomeId){
@@ -48,8 +47,8 @@ function renderOutcomeRow(state,row){
   copy.append(head,el("span","meta",text(row.summary??row.source_label)),el("span","meta",(LABEL[row.kind]??"成果")+" · "+time(row.updated_at)));open.append(copy);article.append(open);if(state.context.canAdd)appendReferenceAction(state,article,row);return article;
 }
 function renderOutcomeList(state){
-  renderFilters(state);const list=el("div","list"),rows=visibleRows(state.list,state.query,state.kind);
-  if(!rows.length)list.append(el("div","empty",state.list.length?"没有匹配的项目成果":"暂无项目成果"));for(const row of rows)list.append(renderOutcomeRow(state,row));replaceContent(state,list);
+  const filtered=state.kind!=="all"||state.query.trim();renderFilters(state);const list=el("div","list"),rows=state.list;
+  if(!rows.length)list.append(el("div","empty",filtered?"没有匹配的项目成果":"暂无项目成果"));for(const row of rows)list.append(renderOutcomeRow(state,row));replaceContent(state,list);
 }
 function renderPreview(detail){
   const preview=detail.preview;if(!preview||preview.kind==="unavailable")return preview?el("p","muted",text(preview.reason)):null;
@@ -87,10 +86,10 @@ function cancelOutcomeSearch(state){if(state.searchTimer!==undefined){clearTimeo
 function scheduleOutcomeSearch(state){cancelOutcomeSearch(state);state.revision+=1;state.searchTimer=setTimeout(()=>{state.searchTimer=undefined;loadOutcomes(state)},SEARCH_DEBOUNCE_MS)}
 function loadOutcomes(state){
   cancelOutcomeSearch(state);
-  request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:"正在读取项目成果…",success:(page)=>{state.list=items(page);setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>showFailure(state,"读取项目成果失败："+failure(error))});
+  request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:"正在读取项目成果…",success:(page)=>{state.list=items(page);setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>showFailure(state,"读取项目成果失败："+failure(error))});
 }
 function loadOutcomeDetail(state,outcomeId){
-  request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",success:(detail)=>renderOutcomeDetail(state,detail,{back:()=>loadOutcomes(state),referenceable:true,sourceable:true}),failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
+  cancelOutcomeSearch(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>loadOutcomes(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
 function loadBoundDetail(state){
   request(state,{method:"xsec.outcomes.resolve",params:{},loading:"正在读取详情…",success:(detail)=>renderOutcomeDetail(state,detail,{referenceable:false,sourceable:false}),failure:(error)=>showFailure(state,"读取详情失败："+failure(error))});
@@ -121,7 +120,7 @@ function appendControls(state,app){
   const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;scheduleOutcomeSearch(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
 }
 function build(state){state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;if(isOutcomesTool(state))appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
-function update(state,context){cancelOutcomeSearch(state);state.contextRevision+=1;state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
+function update(state,context){cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
 function createController(host){
   const state={host,root:null,list:[],query:"",kind:"all",scope:"project",revision:0,contextRevision:0,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
   return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.root?.replaceChildren()}};
