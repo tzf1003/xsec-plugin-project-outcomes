@@ -36,15 +36,15 @@ function openSource(state,row){
   void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>console.info("project-outcomes.source-open.completed",{toolId:target.toolId})).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});if(contextRevision===state.contextRevision)setNotice(state,"打开来源失败："+failure(error),true)});
 }
 function renderFilters(state){
-  if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),filters=el("div","filters");
-  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;loadOutcomes(state)});filter.setAttribute("aria-pressed",String(active));filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters");
+  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;loadOutcomes(state)});filter.setAttribute("aria-pressed",String(active));if(showCounts)filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
   state.nodes.filters.replaceChildren(filters);
 }
 function appendReferenceAction(state,article,row){const action=button("add","@",()=>addReference(state,"outcome",row.outcome_id));action.setAttribute("aria-label","添加成果 "+outcomeTitle(row)+" 到对话");article.append(action)}
 function renderOutcomeRow(state,row){
   const article=el("article","row"),open=button("outcome-open","",()=>loadOutcomeDetail(state,row.outcome_id)),copy=el("span","card-copy"),head=el("span","card-head");
   const title=outcomeTitle(row);open.setAttribute("aria-label","查看成果 "+title);open.append(el("span","outcome-icon",ICON[row.kind]??"◇"));head.append(el("strong","",title),el("span",row.severity?"tag severity":"tag",row.severity??LABEL[row.kind]??"成果"));
-  copy.append(head,el("span","meta",text(row.summary??row.source_label)),el("span","meta",(LABEL[row.kind]??"成果")+" · "+time(row.updated_at)));open.append(copy);article.append(open);if(state.context.canAdd)appendReferenceAction(state,article,row);return article;
+  copy.append(head,el("span","meta",text(row.summary,text(row.source_label))),el("span","meta",(LABEL[row.kind]??"成果")+" · "+time(row.updated_at)));open.append(copy);article.append(open);if(state.context.canAdd)appendReferenceAction(state,article,row);return article;
 }
 function renderOutcomeList(state){
   const filtered=state.kind!=="all"||state.query.trim();renderFilters(state);const list=el("div","list"),rows=state.list;
@@ -77,7 +77,7 @@ function renderOutcomeDetail(state,detail,options){
 }
 
 function request(state,options){
-  const revision=++state.revision;if(options.notice)setNotice(state,options.notice);replaceContent(state,el("div","loading",options.loading));
+  const revision=++state.revision;setNotice(state,options.notice??"");replaceContent(state,el("div","loading",options.loading));
   console.info("project-outcomes.request.started",{method:options.method});
   void state.host.request(options.method,options.params).then((value)=>{console.info("project-outcomes.request.completed",{method:options.method,count:items(value).length});if(revision===state.revision)options.success(value)}).catch((error)=>{console.error("project-outcomes.request.failed",{method:options.method,message:failure(error)});if(revision===state.revision)options.failure(error)});
 }
