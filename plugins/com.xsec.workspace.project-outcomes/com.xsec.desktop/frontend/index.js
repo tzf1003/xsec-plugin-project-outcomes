@@ -38,11 +38,12 @@ function openSource(state,row){
   const target=outcomeSource(state.context,row);if(!target)return;
   const claim=claimActionNotice(state,"source");
   console.info("project-outcomes.source-open.started",{toolId:target.toolId});
-  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>{console.info("project-outcomes.source-open.completed",{toolId:target.toolId});finishActionNotice(state,claim)}).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});finishActionNotice(state,claim,"打开来源失败："+failure(error),true)});
+  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>{console.info("project-outcomes.source-open.completed",{toolId:target.toolId});finishActionNotice(state,claim,"")}).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});finishActionNotice(state,claim,"打开来源失败："+failure(error),true)});
 }
 function renderFilters(state){
-  if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&!state.query.trim()&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters");
-  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;showOutcomeList(state)});filter.setAttribute("aria-pressed",String(active));if(showCounts)filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&!state.query.trim()&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters"),buttons=new Map();
+  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;showOutcomeList(state)});buttons.set(kind,filter);filter.setAttribute("aria-pressed",String(active));if(showCounts)filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  state.nodes.filterButtons=buttons;
   state.nodes.filters.replaceChildren(filters);
 }
 function renderScope(state){
@@ -100,7 +101,10 @@ function loadOutcomes(state){
 function syncScopeButtons(state){
   if(!state.nodes.scope)return;for(const[index,value]of["project","assignment"].entries()){const item=state.nodes.scope.children[index];if(item)item.setAttribute("aria-pressed",String(state.scope===value))}
 }
-function showOutcomeList(state){const navigate=state.panel!=="list";state.panel="list";if(navigate)build(state);else{syncScopeButtons(state);renderFilters(state)}loadOutcomes(state)}
+function syncFilterButtons(state){
+  if(!state.nodes.filterButtons)return;for(const[kind,item]of state.nodes.filterButtons){const active=state.kind===kind;item.classList.toggle("is-active",active);item.setAttribute("aria-pressed",String(active));item.querySelector("span")?.remove()}
+}
+function showOutcomeList(state){const navigate=state.panel!=="list";state.panel="list";if(navigate)build(state);else{syncScopeButtons(state);syncFilterButtons(state)}loadOutcomes(state)}
 function loadOutcomeDetail(state,outcomeId){
   cancelOutcomeSearch(state);state.panel="detail";build(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{if(!hasActionNotice(state))setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
@@ -132,7 +136,7 @@ function appendControls(state,app){
   const controls=el("section","controls"),scope=el("div","scope");state.nodes.scope=scope;renderScope(state);
   const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;scheduleOutcomeSearch(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
 }
-function build(state){state.viewRevision+=1;state.navigationRevision+=1;state.pendingReferences.clear();state.noticeOwner=undefined;state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;state.nodes.scope=undefined;if(isOutcomesTool(state)&&state.panel==="list")appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
+function build(state){state.viewRevision+=1;state.navigationRevision+=1;state.pendingReferences.clear();state.noticeOwner=undefined;state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;state.nodes.filterButtons=undefined;state.nodes.scope=undefined;if(isOutcomesTool(state)&&state.panel==="list")appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
 function update(state,context){cancelOutcomeSearch(state);state.revision+=1;state.context=contextInfo(context);state.panel="list";if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);if(isOutcomesTool(state))loadOutcomes(state);else refreshView(state)}
 function createController(host){
   const state={host,root:null,list:[],query:"",kind:"all",scope:"project",panel:"list",revision:0,viewRevision:0,navigationRevision:0,referenceRevision:0,listRequestRevision:0,pendingReferences:new Set(),noticeOwner:undefined,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
