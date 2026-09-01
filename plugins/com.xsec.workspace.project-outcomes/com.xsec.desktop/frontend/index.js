@@ -21,24 +21,33 @@ function isOutcomesTool(state){return state.context.tool==="project-outcomes"}
 function outcomeTitle(row){return text(row?.title,text(row?.outcome_id))}
 function taskProgress(value){if(value===null||value===undefined||value==="")return undefined;const progress=Number(value);return Number.isFinite(progress)?Math.round(progress*PERCENT_SCALE)+"%":undefined}
 function setNotice(state,message,error=false){state.nodes.notice.textContent=message;state.nodes.notice.className=error?"notice error":"notice"}
-function replaceContent(state,node){state.nodes.content.replaceChildren(node)}
+function ownsNotice(state,kind,revision){return state.noticeOwner?.kind===kind&&state.noticeOwner.revision===revision}
+function hasActionNotice(state){return state.noticeOwner?.kind==="reference"||state.noticeOwner?.kind==="source"}
+function claimActionNotice(state,kind){const navigationRevision=state.navigationRevision,revision=++state.referenceRevision,token=kind+":"+navigationRevision+":"+revision;state.pendingReferences.add(token);state.noticeOwner={kind,revision};return {kind,revision,token,navigationRevision}}
+function finishActionNotice(state,claim,message,error=false){state.pendingReferences.delete(claim.token);if(message===undefined)return;if(claim.navigationRevision===state.navigationRevision&&claim.revision===state.referenceRevision&&ownsNotice(state,claim.kind,claim.revision))setNotice(state,message,error)}
+function replaceContent(state,node){state.viewRevision+=1;state.nodes.content.replaceChildren(node)}
 function contextInfo(context){const workspace=context?.workspace??{},binding=workspace.binding??{},entityId=context?.tool?.entityId;return{tool:context?.tool?.kind??"project-outcomes",mode:workspace.mode,entityId,assignmentId:binding.assignmentId,canAdd:workspace.canAddComposerReference===true,toolCall:workspace.session?.active_tool_calls?.[entityId]}}
 function outcomeSource(context,row){const toolId=SOURCE[row.kind],entityId=row.kind==="task-conclusion"?row.assignment_id:row.entity_id;if(context.mode==="observe"&&toolId==="task-detail")return undefined;return toolId&&entityId?{toolId,entityId}:undefined}
 
 function addReference(state,target,outcomeId){
-  const params=target==="collection"?{target}:{target,outcomeId},contextRevision=state.contextRevision;setNotice(state,"正在添加到对话…");
+  const params=target==="collection"?{target}:{target,outcomeId},claim=claimActionNotice(state,"reference");setNotice(state,"正在添加到对话…");
   console.info("project-outcomes.reference.started",{target});
-  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});if(contextRevision===state.contextRevision)setNotice(state,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});if(contextRevision===state.contextRevision)setNotice(state,"添加到对话失败："+failure(error),true)});
+  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});finishActionNotice(state,claim,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});finishActionNotice(state,claim,"添加到对话失败："+failure(error),true)});
 }
 function openSource(state,row){
-  const target=outcomeSource(state.context,row),contextRevision=state.contextRevision;if(!target)return;
+  const target=outcomeSource(state.context,row);if(!target)return;
+  const claim=claimActionNotice(state,"source");
   console.info("project-outcomes.source-open.started",{toolId:target.toolId});
-  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>console.info("project-outcomes.source-open.completed",{toolId:target.toolId})).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});if(contextRevision===state.contextRevision)setNotice(state,"打开来源失败："+failure(error),true)});
+  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>{console.info("project-outcomes.source-open.completed",{toolId:target.toolId});finishActionNotice(state,claim,"")}).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});finishActionNotice(state,claim,"打开来源失败："+failure(error),true)});
 }
 function renderFilters(state){
-  if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&!state.query.trim()&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters");
-  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;loadOutcomes(state)});filter.setAttribute("aria-pressed",String(active));if(showCounts)filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&!state.query.trim()&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters"),buttons=new Map();
+  for(const[kind,label]of[["all","全部"],...Object.entries(LABEL)]){const active=state.kind===kind,filter=button("filter"+(active?" is-active":""),label,()=>{state.kind=kind;showOutcomeList(state)});buttons.set(kind,filter);filter.setAttribute("aria-pressed",String(active));if(showCounts)filter.append(el("span","",String(kind==="all"?state.list.length:counts[kind]??0)));filters.append(filter)}
+  state.nodes.filterButtons=buttons;
   state.nodes.filters.replaceChildren(filters);
+}
+function renderScope(state){
+  if(!state.nodes.scope)return;const scope=state.nodes.scope;scope.replaceChildren();for(const[value,label]of[["project","整个项目"],["assignment","当前任务"]]){const item=button("",label,()=>{state.scope=value;showOutcomeList(state)});item.disabled=value==="assignment"&&!state.context.assignmentId;item.setAttribute("aria-pressed",String(state.scope===value));scope.append(item)}
 }
 function appendReferenceAction(state,article,row){const action=button("add","@",()=>addReference(state,"outcome",row.outcome_id));action.setAttribute("aria-label","添加成果 "+outcomeTitle(row)+" 到对话");article.append(action)}
 function renderOutcomeRow(state,row){
@@ -52,7 +61,7 @@ function renderOutcomeList(state){
 }
 function renderPreview(detail){
   const preview=detail.preview;if(!preview||preview.kind==="unavailable")return preview?el("p","muted",text(preview.reason)):null;
-  if(preview.kind==="image"&&/^image\/[a-z0-9.+-]+$/i.test(preview.mime_type)){const image=document.createElement("img");image.className="preview";image.alt=text(detail.title);image.src="data:"+preview.mime_type+";base64,"+preview.data_base64;return image}
+  if(preview.kind==="image"&&/^image\/[a-z0-9.+-]+$/i.test(preview.mime_type)){const image=document.createElement("img");image.className="preview";image.alt=outcomeTitle(detail);image.src="data:"+preview.mime_type+";base64,"+preview.data_base64;return image}
   return preview.kind==="text"?el("pre","code",preview.text):null;
 }
 function appendDetailField(dl,label,value){if(value===null||value===undefined||value==="")return;const object=typeof value==="object",rendered=object?JSON.stringify(value,null,2):String(value);dl.append(el("dt","",label),el("dd",object?"code":"",rendered))}
@@ -62,7 +71,7 @@ function appendDetailFields(panel,detail){
   for(const[label,value]of[...facts,...fields])appendDetailField(dl,label,value);section.append(dl);panel.append(section);
 }
 function appendBackAction(panel,back,detail){
-  const action=button("back","‹",back),title=el("span","detail-title");action.setAttribute("aria-label","返回项目成果");title.append(el("small","",detail.kind==="evidence"?"证据详情":"成果详情"),el("strong","",text(detail.title)));action.append(title);panel.append(action);
+  const action=button("back","‹",back),title=el("span","detail-title");action.setAttribute("aria-label","返回项目成果");title.append(el("small","",detail.kind==="evidence"?"证据详情":"成果详情"),el("strong","",outcomeTitle(detail)));action.append(title);panel.append(action);
 }
 function appendDetailActions(state,panel,detail,options){
   if(!options.referenceable||!state.context.canAdd){if(options.sourceable&&outcomeSource(state.context,detail))appendSourceAction(state,panel,detail);return}
@@ -77,19 +86,27 @@ function renderOutcomeDetail(state,detail,options){
 }
 
 function request(state,options){
-  const revision=++state.revision;setNotice(state,options.notice??"");replaceContent(state,el("div","loading",options.loading));
+  const revision=++state.revision;if(!options.preserveNotice)setNotice(state,options.notice??"");replaceContent(state,el("div","loading",options.loading));
   console.info("project-outcomes.request.started",{method:options.method});
   void state.host.request(options.method,options.params).then((value)=>{console.info("project-outcomes.request.completed",{method:options.method,count:items(value).length});if(revision===state.revision)options.success(value)}).catch((error)=>{console.error("project-outcomes.request.failed",{method:options.method,message:failure(error)});if(revision===state.revision)options.failure(error)});
 }
-function showFailure(state,message){setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
+function showFailure(state,message){if(!hasActionNotice(state))setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
 function cancelOutcomeSearch(state){if(state.searchTimer!==undefined){clearTimeout(state.searchTimer);state.searchTimer=undefined}}
 function scheduleOutcomeSearch(state){cancelOutcomeSearch(state);state.revision+=1;state.searchTimer=setTimeout(()=>{state.searchTimer=undefined;loadOutcomes(state)},SEARCH_DEBOUNCE_MS)}
 function loadOutcomes(state){
   cancelOutcomeSearch(state);
-  request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:"正在读取项目成果…",success:(page)=>{state.list=items(page);setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>showFailure(state,"读取项目成果失败："+failure(error))});
+  const listRevision=++state.listRequestRevision,canOwnNotice=state.pendingReferences.size===0;if(canOwnNotice)state.noticeOwner={kind:"list",revision:listRevision};
+  request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:canOwnNotice?"正在读取项目成果…":undefined,preserveNotice:!canOwnNotice,success:(page)=>{state.list=items(page);if(ownsNotice(state,"list",listRevision))setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>{if(ownsNotice(state,"list",listRevision))showFailure(state,"读取项目成果失败："+failure(error));else replaceContent(state,el("div","empty","读取项目成果失败："+failure(error)))}});
 }
+function syncScopeButtons(state){
+  if(!state.nodes.scope)return;for(const[index,value]of["project","assignment"].entries()){const item=state.nodes.scope.children[index];if(item)item.setAttribute("aria-pressed",String(state.scope===value))}
+}
+function syncFilterButtons(state){
+  if(!state.nodes.filterButtons)return;for(const[kind,item]of state.nodes.filterButtons){const active=state.kind===kind;item.classList.toggle("is-active",active);item.setAttribute("aria-pressed",String(active));item.querySelector("span")?.remove()}
+}
+function showOutcomeList(state){const navigate=state.panel!=="list";state.panel="list";if(navigate)build(state);else{syncScopeButtons(state);syncFilterButtons(state)}loadOutcomes(state)}
 function loadOutcomeDetail(state,outcomeId){
-  cancelOutcomeSearch(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>loadOutcomes(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
+  cancelOutcomeSearch(state);state.panel="detail";build(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{if(!hasActionNotice(state))setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
 function loadBoundDetail(state){
   request(state,{method:"xsec.outcomes.resolve",params:{},loading:"正在读取详情…",success:(detail)=>renderOutcomeDetail(state,detail,{referenceable:false,sourceable:false}),failure:(error)=>showFailure(state,"读取详情失败："+failure(error))});
@@ -107,7 +124,7 @@ function renderTaskDetail(state,task){
 }
 function loadTaskDetail(state){request(state,{method:"xsec.outcomes.task.get",params:{},loading:"正在读取任务详情…",success:(task)=>renderTaskDetail(state,task),failure:(error)=>showFailure(state,"读取任务详情失败："+failure(error))})}
 function refreshView(state){
-  if(isOutcomesTool(state))return loadOutcomes(state);if(state.context.toolCall)return renderTaskCall(state,state.context.toolCall);if(state.context.tool==="task-detail"&&state.context.entityId)return loadTaskDetail(state);if(state.context.entityId)return loadBoundDetail(state);if(state.context.tool==="evidence-detail")return loadEvidenceList(state);replaceContent(state,el("div","empty",state.context.tool==="task-detail"?"选中工具调用或任务事件后，会在此展示输入、输出与执行状态。":"请选择成果后查看详情。"));
+  if(isOutcomesTool(state))return showOutcomeList(state);if(state.context.toolCall)return renderTaskCall(state,state.context.toolCall);if(state.context.tool==="task-detail"&&state.context.entityId)return loadTaskDetail(state);if(state.context.entityId)return loadBoundDetail(state);if(state.context.tool==="evidence-detail")return loadEvidenceList(state);replaceContent(state,el("div","empty",state.context.tool==="task-detail"?"选中工具调用或任务事件后，会在此展示输入、输出与执行状态。":"请选择成果后查看详情。"));
 }
 
 function appendCollectionAction(state,actions){const collection=button("icon-btn","@",()=>addReference(state,"collection"));collection.setAttribute("aria-label","添加项目成果集合到对话");actions.append(collection)}
@@ -116,13 +133,13 @@ function appendHeader(state,app){
   const refreshButton=button("icon-btn","↻",()=>refreshView(state));refreshButton.setAttribute("aria-label","刷新项目成果");actions.append(refreshButton);heading.append(copy,actions);app.append(heading);
 }
 function appendControls(state,app){
-  const controls=el("section","controls"),scope=el("div","scope");for(const[value,label]of[["project","整个项目"],["assignment","当前任务"]]){const item=button("",label,()=>{state.scope=value;build(state);loadOutcomes(state)});item.disabled=value==="assignment"&&!state.context.assignmentId;item.setAttribute("aria-pressed",String(state.scope===value));scope.append(item)}
+  const controls=el("section","controls"),scope=el("div","scope");state.nodes.scope=scope;renderScope(state);
   const search=document.createElement("input");search.className="search";search.placeholder="搜索成果标题、摘要或来源";search.value=state.query;search.addEventListener("input",()=>{state.query=search.value;scheduleOutcomeSearch(state)});state.nodes.filters=el("div","");controls.append(scope,search,state.nodes.filters);app.append(controls);
 }
-function build(state){state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;if(isOutcomesTool(state))appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
-function update(state,context){cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.context=contextInfo(context);if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);refreshView(state)}
+function build(state){state.viewRevision+=1;state.navigationRevision+=1;state.pendingReferences.clear();state.noticeOwner=undefined;state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;state.nodes.filterButtons=undefined;state.nodes.scope=undefined;if(isOutcomesTool(state)&&state.panel==="list")appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
+function update(state,context){cancelOutcomeSearch(state);state.revision+=1;state.context=contextInfo(context);state.panel="list";if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);if(isOutcomesTool(state))loadOutcomes(state);else refreshView(state)}
 function createController(host){
-  const state={host,root:null,list:[],query:"",kind:"all",scope:"project",revision:0,contextRevision:0,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
-  return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});cancelOutcomeSearch(state);state.contextRevision+=1;state.revision+=1;state.root?.replaceChildren()}};
+  const state={host,root:null,list:[],query:"",kind:"all",scope:"project",panel:"list",revision:0,viewRevision:0,navigationRevision:0,referenceRevision:0,listRequestRevision:0,pendingReferences:new Set(),noticeOwner:undefined,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
+  return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});cancelOutcomeSearch(state);state.viewRevision+=1;state.navigationRevision+=1;state.pendingReferences.clear();state.noticeOwner=undefined;state.revision+=1;state.root?.replaceChildren()}};
 }
 export function activate(host){console.debug("project-outcomes.activate",{apiVersion:host.apiVersion});return createController(host)}

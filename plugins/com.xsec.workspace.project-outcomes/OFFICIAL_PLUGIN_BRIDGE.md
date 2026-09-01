@@ -5,5 +5,5 @@ This package owns the signed plugin manifest, permissions and release lifecycle.
 ## 设置审查
 
 项目成果当前没有账户级持久化配置，因此不创建空的插件设置页。成果筛选、详情、
-引用和来源跳转是当前项目操作，保留在主界面。详见仓库的
-[插件设置规范](../../docs/plugin-settings.md)。
+引用和来源跳转是当前项目操作，保留在主界面；当前安装包的 manifest 也不声明
+设置贡献点。
