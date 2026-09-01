@@ -22,20 +22,23 @@ function outcomeTitle(row){return text(row?.title,text(row?.outcome_id))}
 function taskProgress(value){if(value===null||value===undefined||value==="")return undefined;const progress=Number(value);return Number.isFinite(progress)?Math.round(progress*PERCENT_SCALE)+"%":undefined}
 function setNotice(state,message,error=false){state.nodes.notice.textContent=message;state.nodes.notice.className=error?"notice error":"notice"}
 function ownsNotice(state,kind,revision){return state.noticeOwner?.kind===kind&&state.noticeOwner.revision===revision}
+function hasActionNotice(state){return state.noticeOwner?.kind==="reference"||state.noticeOwner?.kind==="source"}
+function claimActionNotice(state,kind){const navigationRevision=state.navigationRevision,revision=++state.referenceRevision,token=kind+":"+navigationRevision+":"+revision;state.pendingReferences.add(token);state.noticeOwner={kind,revision};return {kind,revision,token,navigationRevision}}
+function finishActionNotice(state,claim,message,error=false){state.pendingReferences.delete(claim.token);if(message===undefined)return;if(claim.navigationRevision===state.navigationRevision&&claim.revision===state.referenceRevision&&ownsNotice(state,claim.kind,claim.revision))setNotice(state,message,error)}
 function replaceContent(state,node){state.viewRevision+=1;state.nodes.content.replaceChildren(node)}
 function contextInfo(context){const workspace=context?.workspace??{},binding=workspace.binding??{},entityId=context?.tool?.entityId;return{tool:context?.tool?.kind??"project-outcomes",mode:workspace.mode,entityId,assignmentId:binding.assignmentId,canAdd:workspace.canAddComposerReference===true,toolCall:workspace.session?.active_tool_calls?.[entityId]}}
 function outcomeSource(context,row){const toolId=SOURCE[row.kind],entityId=row.kind==="task-conclusion"?row.assignment_id:row.entity_id;if(context.mode==="observe"&&toolId==="task-detail")return undefined;return toolId&&entityId?{toolId,entityId}:undefined}
 
 function addReference(state,target,outcomeId){
-  const params=target==="collection"?{target}:{target,outcomeId},navigationRevision=state.navigationRevision,referenceRevision=++state.referenceRevision,referenceToken=navigationRevision+":"+referenceRevision;state.pendingReferences.add(referenceToken);state.noticeOwner={kind:"reference",revision:referenceRevision};setNotice(state,"正在添加到对话…");
+  const params=target==="collection"?{target}:{target,outcomeId},claim=claimActionNotice(state,"reference");setNotice(state,"正在添加到对话…");
   console.info("project-outcomes.reference.started",{target});
-  const finish=(message,error=false)=>{state.pendingReferences.delete(referenceToken);if(navigationRevision===state.navigationRevision&&referenceRevision===state.referenceRevision&&ownsNotice(state,"reference",referenceRevision))setNotice(state,message,error)};
-  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});finish("已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});finish("添加到对话失败："+failure(error),true)});
+  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});finishActionNotice(state,claim,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});finishActionNotice(state,claim,"添加到对话失败："+failure(error),true)});
 }
 function openSource(state,row){
-  const target=outcomeSource(state.context,row),navigationRevision=state.navigationRevision;if(!target)return;
+  const target=outcomeSource(state.context,row);if(!target)return;
+  const claim=claimActionNotice(state,"source");
   console.info("project-outcomes.source-open.started",{toolId:target.toolId});
-  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>console.info("project-outcomes.source-open.completed",{toolId:target.toolId})).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});if(navigationRevision===state.navigationRevision)setNotice(state,"打开来源失败："+failure(error),true)});
+  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>{console.info("project-outcomes.source-open.completed",{toolId:target.toolId});finishActionNotice(state,claim)}).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});finishActionNotice(state,claim,"打开来源失败："+failure(error),true)});
 }
 function renderFilters(state){
   if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&!state.query.trim()&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters");
@@ -83,17 +86,17 @@ function request(state,options){
   console.info("project-outcomes.request.started",{method:options.method});
   void state.host.request(options.method,options.params).then((value)=>{console.info("project-outcomes.request.completed",{method:options.method,count:items(value).length});if(revision===state.revision)options.success(value)}).catch((error)=>{console.error("project-outcomes.request.failed",{method:options.method,message:failure(error)});if(revision===state.revision)options.failure(error)});
 }
-function showFailure(state,message){setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
+function showFailure(state,message){if(!hasActionNotice(state))setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
 function cancelOutcomeSearch(state){if(state.searchTimer!==undefined){clearTimeout(state.searchTimer);state.searchTimer=undefined}}
 function scheduleOutcomeSearch(state){cancelOutcomeSearch(state);state.revision+=1;state.searchTimer=setTimeout(()=>{state.searchTimer=undefined;loadOutcomes(state)},SEARCH_DEBOUNCE_MS)}
 function loadOutcomes(state){
   cancelOutcomeSearch(state);
   const listRevision=++state.listRequestRevision,canOwnNotice=state.pendingReferences.size===0;if(canOwnNotice)state.noticeOwner={kind:"list",revision:listRevision};
-  request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:canOwnNotice?"正在读取项目成果…":undefined,preserveNotice:!canOwnNotice,success:(page)=>{state.list=items(page);if(ownsNotice(state,"list",listRevision))setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>{if(ownsNotice(state,"list",listRevision))showFailure(state,"读取项目成果失败："+failure(error))}});
+  request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:canOwnNotice?"正在读取项目成果…":undefined,preserveNotice:!canOwnNotice,success:(page)=>{state.list=items(page);if(ownsNotice(state,"list",listRevision))setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>{if(ownsNotice(state,"list",listRevision))showFailure(state,"读取项目成果失败："+failure(error));else replaceContent(state,el("div","empty","读取项目成果失败："+failure(error)))}});
 }
 function showOutcomeList(state){const navigate=state.panel!=="list";state.panel="list";if(navigate)build(state);loadOutcomes(state)}
 function loadOutcomeDetail(state,outcomeId){
-  cancelOutcomeSearch(state);state.panel="detail";build(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
+  cancelOutcomeSearch(state);state.panel="detail";build(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{if(!hasActionNotice(state))setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
 function loadBoundDetail(state){
   request(state,{method:"xsec.outcomes.resolve",params:{},loading:"正在读取详情…",success:(detail)=>renderOutcomeDetail(state,detail,{referenceable:false,sourceable:false}),failure:(error)=>showFailure(state,"读取详情失败："+failure(error))});
