@@ -97,7 +97,10 @@ function loadOutcomes(state){
   const listRevision=++state.listRequestRevision,canOwnNotice=state.pendingReferences.size===0;if(canOwnNotice)state.noticeOwner={kind:"list",revision:listRevision};
   request(state,{method:"xsec.outcomes.list",params:{assignmentOnly:state.scope==="assignment",kinds:state.kind==="all"?undefined:[state.kind],query:state.query.trim()||undefined,limit:OUTCOME_LIMIT},loading:"正在读取项目成果…",notice:canOwnNotice?"正在读取项目成果…":undefined,preserveNotice:!canOwnNotice,success:(page)=>{state.list=items(page);if(ownsNotice(state,"list",listRevision))setNotice(state,"已加载 "+state.list.length+" 项真实成果");renderOutcomeList(state)},failure:(error)=>{if(ownsNotice(state,"list",listRevision))showFailure(state,"读取项目成果失败："+failure(error));else replaceContent(state,el("div","empty","读取项目成果失败："+failure(error)))}});
 }
-function showOutcomeList(state){const navigate=state.panel!=="list";state.panel="list";if(navigate)build(state);else{renderScope(state);renderFilters(state)}loadOutcomes(state)}
+function syncScopeButtons(state){
+  if(!state.nodes.scope)return;for(const[index,value]of["project","assignment"].entries()){const item=state.nodes.scope.children[index];if(item)item.setAttribute("aria-pressed",String(state.scope===value))}
+}
+function showOutcomeList(state){const navigate=state.panel!=="list";state.panel="list";if(navigate)build(state);else{syncScopeButtons(state);renderFilters(state)}loadOutcomes(state)}
 function loadOutcomeDetail(state,outcomeId){
   cancelOutcomeSearch(state);state.panel="detail";build(state);request(state,{method:"xsec.outcomes.get",params:{outcomeId},loading:"正在读取成果详情…",notice:"正在读取成果详情…",success:(detail)=>{if(!hasActionNotice(state))setNotice(state,"");renderOutcomeDetail(state,detail,{back:()=>showOutcomeList(state),referenceable:true,sourceable:true})},failure:(error)=>showFailure(state,"读取成果详情失败："+failure(error))});
 }
