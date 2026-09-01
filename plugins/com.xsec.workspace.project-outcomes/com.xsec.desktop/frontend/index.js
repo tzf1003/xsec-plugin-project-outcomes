@@ -17,6 +17,17 @@ function text(value,empty="—"){return typeof value==="string"&&value.trim()?va
 function time(value){if(value===null||value===undefined||value==="")return "—";const stamp=new Date(Number(value));return Number.isNaN(stamp.getTime())?"—":stamp.toLocaleString("zh-CN")}
 function safe(value){if(value===null||value===undefined)return value;return JSON.parse(JSON.stringify(value,(key,item)=>key==="storage_path"?undefined:item))}
 function failure(error){return text(error?.message,String(error))}
+function invoke(host,options){
+  const {method,params}=options;
+  if(method==="xsec.outcomes.list")return host.request("xsec.outcomes.list",params);
+  if(method==="xsec.outcomes.get")return host.request("xsec.outcomes.get",params);
+  if(method==="xsec.outcomes.resolve")return host.request("xsec.outcomes.resolve",params);
+  if(method==="xsec.outcomes.task.get")return host.request("xsec.outcomes.task.get",params);
+  if(method==="xsec.outcomes.evidence.list")return host.request("xsec.outcomes.evidence.list",params);
+  if(method==="xsec.outcomes.reference.add")return host.request("xsec.outcomes.reference.add",params);
+  if(method==="xsec.workspace.tool.open")return host.request("xsec.workspace.tool.open",params);
+  throw new Error("Unsupported project outcomes request: "+method);
+}
 function isOutcomesTool(state){return state.context.tool==="project-outcomes"}
 function outcomeTitle(row){return text(row?.title,text(row?.outcome_id))}
 function taskProgress(value){if(value===null||value===undefined||value==="")return undefined;const progress=Number(value);return Number.isFinite(progress)?Math.round(progress*PERCENT_SCALE)+"%":undefined}
@@ -32,13 +43,13 @@ function outcomeSource(context,row){const toolId=SOURCE[row.kind],entityId=row.k
 function addReference(state,target,outcomeId){
   const params=target==="collection"?{target}:{target,outcomeId},claim=claimActionNotice(state,"reference");setNotice(state,"正在添加到对话…");
   console.info("project-outcomes.reference.started",{target});
-  void state.host.request("xsec.outcomes.reference.add",params).then(()=>{console.info("project-outcomes.reference.completed",{target});finishActionNotice(state,claim,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});finishActionNotice(state,claim,"添加到对话失败："+failure(error),true)});
+  void state.invoke({method:"xsec.outcomes.reference.add",params}).then(()=>{console.info("project-outcomes.reference.completed",{target});finishActionNotice(state,claim,"已添加到对话")}).catch((error)=>{console.error("project-outcomes.reference.failed",{target,message:failure(error)});finishActionNotice(state,claim,"添加到对话失败："+failure(error),true)});
 }
 function openSource(state,row){
   const target=outcomeSource(state.context,row);if(!target)return;
   const claim=claimActionNotice(state,"source");
   console.info("project-outcomes.source-open.started",{toolId:target.toolId});
-  void state.host.request("xsec.workspace.tool.open",{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}).then(()=>{console.info("project-outcomes.source-open.completed",{toolId:target.toolId});finishActionNotice(state,claim,"")}).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});finishActionNotice(state,claim,"打开来源失败："+failure(error),true)});
+  void state.invoke({method:"xsec.workspace.tool.open",params:{pluginId:"com.xsec.workspace.project-outcomes",toolId:target.toolId,title:outcomeTitle(row),entityId:target.entityId}}).then(()=>{console.info("project-outcomes.source-open.completed",{toolId:target.toolId});finishActionNotice(state,claim,"")}).catch((error)=>{console.error("project-outcomes.source-open.failed",{toolId:target.toolId,message:failure(error)});finishActionNotice(state,claim,"打开来源失败："+failure(error),true)});
 }
 function renderFilters(state){
   if(!state.nodes.filters)return;const counts=state.list.reduce((result,row)=>{result[row.kind]=(result[row.kind]??0)+1;return result},{}),showCounts=state.kind==="all"&&!state.query.trim()&&state.list.length<OUTCOME_LIMIT,filters=el("div","filters"),buttons=new Map();
@@ -88,7 +99,7 @@ function renderOutcomeDetail(state,detail,options){
 function request(state,options){
   const revision=++state.revision;if(!options.preserveNotice)setNotice(state,options.notice??"");replaceContent(state,el("div","loading",options.loading));
   console.info("project-outcomes.request.started",{method:options.method});
-  void state.host.request(options.method,options.params).then((value)=>{console.info("project-outcomes.request.completed",{method:options.method,count:items(value).length});if(revision===state.revision)options.success(value)}).catch((error)=>{console.error("project-outcomes.request.failed",{method:options.method,message:failure(error)});if(revision===state.revision)options.failure(error)});
+  void state.invoke(options).then((value)=>{console.info("project-outcomes.request.completed",{method:options.method,count:items(value).length});if(revision===state.revision)options.success(value)}).catch((error)=>{console.error("project-outcomes.request.failed",{method:options.method,message:failure(error)});if(revision===state.revision)options.failure(error)});
 }
 function showFailure(state,message){if(!hasActionNotice(state))setNotice(state,message,true);replaceContent(state,el("div","empty",message))}
 function cancelOutcomeSearch(state){if(state.searchTimer!==undefined){clearTimeout(state.searchTimer);state.searchTimer=undefined}}
@@ -139,7 +150,7 @@ function appendControls(state,app){
 function build(state){state.viewRevision+=1;state.navigationRevision+=1;state.pendingReferences.clear();state.noticeOwner=undefined;state.root.replaceChildren(el("style","",CSS));const app=el("main","app");appendHeader(state,app);state.nodes.notice=el("p","notice");state.nodes.content=el("section","");state.nodes.filters=undefined;state.nodes.filterButtons=undefined;state.nodes.scope=undefined;if(isOutcomesTool(state)&&state.panel==="list")appendControls(state,app);app.append(state.nodes.notice,state.nodes.content);state.root.append(app)}
 function update(state,context){cancelOutcomeSearch(state);state.revision+=1;state.context=contextInfo(context);state.panel="list";if(state.scope==="assignment"&&!state.context.assignmentId)state.scope="project";build(state);if(isOutcomesTool(state))loadOutcomes(state);else refreshView(state)}
 function createController(host){
-  const state={host,root:null,list:[],query:"",kind:"all",scope:"project",panel:"list",revision:0,viewRevision:0,navigationRevision:0,referenceRevision:0,listRequestRevision:0,pendingReferences:new Set(),noticeOwner:undefined,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
+  const state={invoke:(options)=>invoke(host,options),root:null,list:[],query:"",kind:"all",scope:"project",panel:"list",revision:0,viewRevision:0,navigationRevision:0,referenceRevision:0,listRequestRevision:0,pendingReferences:new Set(),noticeOwner:undefined,searchTimer:undefined,nodes:{},context:contextInfo(host.context)};
   return{mount(root){console.info("project-outcomes.mount",{tool:state.context.tool});state.root=root;update(state,host.context)},update(context){update(state,context)},dispose(){console.debug("project-outcomes.dispose",{tool:state.context.tool});cancelOutcomeSearch(state);state.viewRevision+=1;state.navigationRevision+=1;state.pendingReferences.clear();state.noticeOwner=undefined;state.revision+=1;state.root?.replaceChildren()}};
 }
 export function activate(host){console.debug("project-outcomes.activate",{apiVersion:host.apiVersion});return createController(host)}
